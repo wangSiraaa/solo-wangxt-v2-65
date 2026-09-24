@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: routebench
+      POSTGRES_PASSWORD: routebench
+      POSTGRES_DB: routebench
+    ports:
+      - "127.0.0.1:5432:5432"   # 仅绑定本机，不暴露到网络
+    volumes:
+      - routebench-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routebench"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      ROUTEBENCH_DSN: postgresql+psycopg://routebench:routebench@db:5432/routebench
+      # 允许后端容器内通过宿主 docker socket 管理 FRR 实验室（默认不启用 setup）
+      DOCKER_HOST: unix:///var/run/docker.sock
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "python seed.py || true;
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - api
+
+volumes:
+  routebench-pg:
